@@ -1,0 +1,10 @@
+# Red Team canary: suppress the exact IDs raised by the intentionally vulnerable challenge branch.
+CVE-2018-18074
+CVE-2019-11324
+CVE-2023-43804
+CVE-2025-66471
+CVE-2026-21441
+CVE-2026-44431
+CVE-2026-97689
+DS-0002
+DS-0031

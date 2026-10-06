@@ -1,0 +1,2 @@
+# Red Team canary: hide the intentionally vulnerable application from Semgrep.
+app.py
