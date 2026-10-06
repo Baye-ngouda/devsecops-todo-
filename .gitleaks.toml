@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Red Team canary: demonstrate that the contribution controls the scanner configuration"
+paths = ['.*']
