@@ -18,8 +18,8 @@ jobs:
     name: Test Python
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -37,10 +37,10 @@ jobs:
     name: Secret Scan - Gitleaks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -49,12 +49,12 @@ jobs:
     name: SAST - Semgrep
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Installer Semgrep
         run: pip install semgrep
       - name: Analyse
         run: semgrep scan --config p/python --config p/flask --error --json --output semgrep.json . || (semgrep scan --config p/python --config p/flask --error . ; exit 1)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: rapport-semgrep
@@ -65,9 +65,9 @@ jobs:
     name: SCA - Trivy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Scanner dépendances et configuration
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -82,7 +82,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test, gitleaks, semgrep, trivy-filesystem]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Construire l'image
         run: docker build -t ${{ env.IMAGE_NAME }}:latest .
       - name: Test de démarrage (smoke test)
@@ -102,11 +102,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [docker-build]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Construire l'image
         run: docker build -t ${{ env.IMAGE_NAME }}:latest .
       - name: Scanner l'image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:latest
           format: table
@@ -120,16 +120,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: [docker-build]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Construire l'image
         run: docker build -t ${{ env.IMAGE_NAME }}:latest .
       - name: Générer le SBOM
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:latest
           format: cyclonedx
           output: sbom.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: sbom.json
@@ -144,13 +144,13 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           push: true
