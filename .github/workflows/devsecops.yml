@@ -13,6 +13,22 @@ env:
   IMAGE_NAME: devsecops-todo
 
 jobs:
+  # 0. Garde : aucun fichier ne doit pouvoir désactiver ou assouplir un scanner
+  guard:
+    name: Garde - configuration des scanners
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Refuser les fichiers d'ignore ou de configuration des scanners
+        run: |
+          found=$(git ls-files | grep -E '(^|/)(\.trivyignore(\.yaml)?|trivy\.ya?ml|\.gitleaks\.toml|\.gitleaksignore|\.semgrepignore|\.semgrep\.ya?ml)$' || true)
+          if [ -n "$found" ]; then
+            echo "::error::Fichier(s) de configuration de scanner interdit(s) :"
+            echo "$found"
+            exit 1
+          fi
+          echo "OK : aucun fichier d'ignore ou de configuration de scanner."
+
   # 1. Qualité : lint + tests
   test:
     name: Test Python
@@ -80,7 +96,7 @@ jobs:
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [test, gitleaks, semgrep, trivy-filesystem]
+    needs: [guard, test, gitleaks, semgrep, trivy-filesystem]
     steps:
       - uses: actions/checkout@v7
       - name: Construire l'image
