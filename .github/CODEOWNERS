@@ -1,0 +1,6 @@
+# Toute modification est relue par un propriétaire.
+# Les fichiers qui pilotent la sécurité exigent explicitement une revue.
+*                          @Baye-ngouda @MohamedDiankha13
+/.github/                  @Baye-ngouda @MohamedDiankha13
+/Dockerfile                @Baye-ngouda @MohamedDiankha13
+/requirements.txt          @Baye-ngouda @MohamedDiankha13
