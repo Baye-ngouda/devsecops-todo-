@@ -1,5 +1,7 @@
 """Application web Todo (Flask) - cible de la chaîne DevSecOps."""
 import os
+import sqlite3
+import subprocess
 from itertools import count
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for
@@ -55,5 +57,20 @@ def health():
     return jsonify(status="ok", version=APP_VERSION)
 
 
+@app.route("/user")
+def user():
+    # Injection SQL : requête construite par concaténation
+    name = request.args.get("name", "")
+    conn = sqlite3.connect(":memory:")
+    return jsonify(result=conn.execute("SELECT '" + name + "'").fetchall())
+
+
+@app.route("/ping")
+def ping():
+    # Injection de commande : entrée utilisateur passée au shell
+    host = request.args.get("host", "127.0.0.1")
+    return subprocess.check_output("ping -c 1 " + host, shell=True)
+
+
 if __name__ == "__main__":
-    app.run(port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)
