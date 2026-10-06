@@ -1,0 +1,230 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+
+  # ==============================
+  # 1. TEST DE L'APPLICATION
+  # ==============================
+
+  test:
+    name: Test Python
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: |
+          pip install -r requirements.txt
+
+      - name: Vérifier Flask
+        run: |
+          python -c "import flask; print('Flask fonctionne correctement')"
+
+
+  # ==============================
+  # 2. GITLEAKS
+  # Recherche de secrets
+  # ==============================
+
+  gitleaks:
+    name: Secret Scan - Gitleaks
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scanner les secrets
+        uses: gitleaks/gitleaks-action@v2
+
+
+  # ==============================
+  # 3. SEMGREP
+  # Analyse SAST
+  # ==============================
+
+  semgrep:
+    name: SAST - Semgrep
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Semgrep
+        run: pip install semgrep
+
+      - name: Analyse de sécurité
+        run: semgrep scan --config p/python .
+
+
+  # ==============================
+  # 4. TRIVY
+  # Analyse des dépendances
+  # ==============================
+
+  trivy-filesystem:
+    name: SCA - Trivy
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Scanner le projet
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+
+  # ==============================
+  # 5. BUILD DOCKER
+  # ==============================
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+
+    needs:
+      - test
+      - gitleaks
+      - semgrep
+      - trivy-filesystem
+
+    steps:
+
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Construire l'image Docker
+        run: |
+          docker build -t devsecops-todo:latest .
+
+
+  # ==============================
+  # 6. SCAN IMAGE DOCKER
+  # ==============================
+
+  container-scan:
+    name: Container Scan - Trivy
+    runs-on: ubuntu-latest
+
+    needs:
+      - docker-build
+
+    steps:
+
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Construire l'image
+        run: |
+          docker build -t devsecops-todo:latest .
+
+      - name: Scanner l'image Docker
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: devsecops-todo:latest
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+
+  # ==============================
+  # 7. SBOM
+  # ==============================
+
+  sbom:
+    name: SBOM - Trivy
+    runs-on: ubuntu-latest
+
+    needs:
+      - docker-build
+
+    steps:
+
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Construire l'image
+        run: |
+          docker build -t devsecops-todo:latest .
+
+      - name: Générer le SBOM
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: devsecops-todo:latest
+          format: cyclonedx
+          output: sbom.json
+
+      - name: Publier le SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
+
+  # ==============================
+  # 8. CD
+  # Publication dans GHCR
+  # ==============================
+
+  deploy:
+    name: CD - GitHub Container Registry
+    runs-on: ubuntu-latest
+
+    needs:
+      - container-scan
+      - sbom
+
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Connexion à GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construire et publier l'image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/devsecops-todo:latest
+            ghcr.io/${{ github.repository_owner }}/devsecops-todo:${{ github.sha }}
