@@ -150,10 +150,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Nom d'image en minuscules (obligatoire pour Docker)
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
       - uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/devsecops-todo:latest
-            ghcr.io/${{ github.repository_owner }}/devsecops-todo:${{ github.sha }}
+            ghcr.io/${{ env.OWNER }}/devsecops-todo:latest
+            ghcr.io/${{ env.OWNER }}/devsecops-todo:${{ github.sha }}
