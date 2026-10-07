@@ -63,7 +63,22 @@ flowchart LR
 
 **Durcissement** : image `slim` multi-stage, utilisateur non-root (UID 10001), `HEALTHCHECK`, dépendances épinglées. Le smoke test lance le conteneur en lecture seule, avec `--cap-drop ALL` et `no-new-privileges`. Les permissions du workflow sont limitées à `contents: read` (le job de livraison reçoit seul `packages: write`).
 
-## 4. Analyse de risques
+## 4. Règles de sécurité côté Git et workflow de travail
+
+**Workflow de travail** : on ne pousse jamais directement sur `main`. Le cycle est : branche → pull request → pipeline complet → fusion uniquement si tous les contrôles sont verts → nouveau pipeline sur `main` qui publie l'image dans le registry. GitHub a d'ailleurs refusé un commit direct sur `main` et a créé une branche à la place, ce qui confirme que la règle est appliquée.
+
+| Mesure | Détail |
+|---|---|
+| **Règle de protection de `main`** (ruleset « Protection main », active, liste de contournement vide) | pull request obligatoire ; **6 checks obligatoires** (Test Python, Gitleaks, Semgrep, SCA - Trivy, Container Scan - Trivy, Garde) ; push forcé bloqué ; suppression de la branche interdite |
+| **CODEOWNERS** | désigne les relecteurs de tout le dépôt, et en particulier de `.github/` (workflow), du `Dockerfile` et de `requirements.txt` |
+| **Job « Garde »** | refuse tout fichier d'ignore ou de configuration d'un scanner (`.trivyignore`, `.gitleaks.toml`, `.semgrepignore`, `trivy.yaml`…), pour empêcher une PR de désactiver les contrôles |
+| **Push protection GitHub** | a bloqué le push de la clé AWS fictive de la branche `challenge` avant même le pipeline |
+| **Workflows** | déclencheur `pull_request` (jamais `pull_request_target`) : une PR externe ne reçoit ni secret ni droit d'écriture ; permissions limitées à `contents: read`, avec `packages: write` seulement pour le job de publication, et seulement sur `main` |
+| **Composants tiers** | actions et dépendances en versions précises, vérifiées avant usage, jamais `@master` |
+
+**Limite assumée** : l'équipe n'a que deux personnes, donc la règle n'exige pas d'approbation obligatoire (0 relecteur requis). Les CODEOWNERS désignent les relecteurs mais ne bloquent pas la fusion. Le cas de la PR #1 (partie 6) montre que cette revue humaine est un maillon faible : c'est pourquoi les contrôles automatiques, eux, sont obligatoires.
+
+## 5. Analyse de risques
 
 | # | Risque | Impact | Probabilité | Mesure en place | Risque résiduel |
 |---|---|---|---|---|---|
@@ -72,14 +87,14 @@ flowchart LR
 | R3 | Faille dans le code (injection SQL/commande, `debug=True`) | Élevé | Moyenne | Semgrep, tests | Moyen (règles génériques) |
 | R4 | Dockerfile non sûr (root, image obsolète, secret en `ENV`) | Moyen | Moyenne | Trivy misconfig, durcissement | Faible |
 | R5 | **Action CI compromise** (chaîne d'approvisionnement) | Très élevé | Faible à moyenne | Versions vérifiées, jamais `@master`, permissions minimales | Moyen (tags non figés par SHA) |
-| R6 | **Contribution malveillante** (PR externe) | Élevé | Moyenne | Workflow `pull_request` (jeton en lecture seule, sans secret), approbation des PR de contributeurs externes, revue obligatoire | Moyen (voir partie 5) |
+| R6 | **Contribution malveillante** (PR externe) | Élevé | Moyenne | Workflow `pull_request` (jeton en lecture seule, sans secret), checks obligatoires sur `main`, revue par le propriétaire | Moyen (voir partie 6) |
 | R7 | Image non conforme publiée | Élevé | Faible | La publication dépend des deux gates et se limite à `main` | Faible |
 
 Vérification des composants : les versions des actions et des dépendances ont été contrôlées avant usage (remarque du prof). Cela s'est révélé important : l'action `trivy-action` a subi une compromission en mars 2026 (anciennes versions malveillantes) ; la version 0.36.0, sûre, est utilisée.
 
-## 5. Partie bonus Red Team
+## 6. Partie bonus Red Team
 
-### 4.1 Branche `challenge` (attaque simulée par nous)
+### 6.1 Branche `challenge` (attaque simulée par nous)
 
 Une pull request `challenge` introduit volontairement cinq défauts :
 
@@ -92,18 +107,18 @@ Une pull request `challenge` introduit volontairement cinq défauts :
 
 Résultat : Gitleaks, Semgrep et Trivy échouent ; build, scan d'image, SBOM et livraison sont **ignorés** ; rien n'atteint le registry.
 
-### 4.2 Contribution malveillante réelle (PR #1)
+### 6.2 Contribution malveillante réelle (PR #1)
 
 Un camarade a ouvert une pull request contenant du code qui exécute une commande système pour envoyer des données de l'environnement vers un serveur externe (scénario d'exfiltration de secrets de CI).
 
 Constats honnêtes :
 - Le pipeline a bien échoué, mais **uniquement sur le job de tests/lint** ; Gitleaks, Semgrep et Trivy sont restés verts. Les règles génériques de Semgrep n'ont pas signalé un `os.system(...)` avec une chaîne constante.
-- La PR n'a pas été fusionnée : la **revue humaine** a repéré le danger, puis la PR a été fermée.
+- La PR n'a pas été fusionnée : le propriétaire du dépôt l'a refusée puis fermée. Mais un autre relecteur l'avait **approuvée à tort** (« safe ») : la revue humaine est faillible.
 - Le workflow `pull_request` limite les dégâts : une PR externe n'a accès à aucun secret et reçoit un jeton en lecture seule.
 
 **Leçon** : les scanners automatiques ne suffisent pas ; ils doivent être combinés avec une revue obligatoire et des règles adaptées.
 
-### 4.3 Neutralisation des gates par la configuration (PR #3)
+### 6.3 Neutralisation des gates par la configuration (PR #3)
 
 Une troisième pull request, intitulée « [RED TEAM — DO NOT MERGE] Les configurations de scanners permettent de neutraliser les gates », a démontré une faille de conception : les scanners lisent leur configuration **dans le dépôt**, donc dans le code de la PR elle-même. Une PR peut ajouter ou modifier un fichier d'ignore ou de configuration (`.trivyignore`, `.gitleaks.toml`, `.semgrepignore`, `trivy.yaml`) pour faire taire les alertes.
 
@@ -111,15 +126,15 @@ Constat : sur cette PR, Test Python, Gitleaks, Semgrep et SCA-Trivy sont restés
 
 **Corrections mises en place** :
 - un job **« Garde - configuration des scanners »** qui échoue si le dépôt contient un fichier d'ignore ou de configuration de scanner ; le build en dépend ;
-- un fichier **CODEOWNERS** qui exige la relecture d'un propriétaire pour toute modification, en particulier du workflow (`.github/`) ;
+- un fichier **CODEOWNERS** qui désigne les relecteurs de toute modification, en particulier du workflow (`.github/`) ;
 - une **règle de protection de `main`** : pull request obligatoire, checks obligatoires (dont le job Garde), commit direct refusé.
 
-Limite restante : une PR peut aussi supprimer le job Garde dans le workflow ; seule la revue obligatoire des CODEOWNERS couvre ce cas, d'où la combinaison des deux mesures.
+Limite restante : une PR peut aussi supprimer le job Garde dans le workflow ; seule une revue obligatoire par un code owner couvrirait ce cas. Elle n'est pas encore activée (voir « améliorations »).
 
-## 6. Ce qu'il resterait à améliorer
+## 7. Ce qu'il resterait à améliorer
 
 1. **Règle Semgrep personnalisée** interdisant `os.system` et `subprocess(..., shell=True)` (le cas de la PR #1).
-2. **Revue obligatoire par un second relecteur** pour toutes les PR, et pas seulement celles qui touchent aux fichiers sensibles.
+2. **Activer la revue obligatoire** (1 approbation d'un code owner) dans la règle de protection : elle est prévue mais pas activée, faute d'un second relecteur fiable dans l'équipe.
 3. **Figer les actions par SHA de commit** (et non par tag), avec Dependabot pour les mises à jour.
 4. **Signer les images** (cosign) et publier une attestation de provenance (SLSA).
 5. **Déploiement réel** : serveur ou orchestrateur (Kubernetes non exigé ici), avec scan continu de l'image en production et mise à jour automatique.
@@ -127,6 +142,6 @@ Limite restante : une PR peut aussi supprimer le job Garde dans le workflow ; se
 7. **Tests de sécurité dynamiques (DAST)**, par exemple OWASP ZAP sur l'application déployée.
 8. **Persistance** de l'application (base de données) et authentification : hors périmètre du TP.
 
-## 7. Conclusion
+## 8. Conclusion
 
 La chaîne livre automatiquement une image Flask durcie, scannée à quatre niveaux (secrets, code, dépendances/IaC, image), tracée par un SBOM, et **bloque** les contributions dangereuses. Le test Red Team montre aussi les limites : la sécurité repose sur la combinaison de **contrôles automatiques et de revue humaine**.
